@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import requests
+from src.core.token_tracer_util import token_tracker as _token_tracker
 
 
 def should_sanitize_for_vllm(base_url: Optional[str]) -> bool:
@@ -121,6 +122,12 @@ def http_chat_completions(
             out = resp.json()
             if logger:
                 logger.log("llm_http_success", attempt=attempt + 1, status_code=status)
+            if _token_tracker is not None:
+                usage = out.get("usage") or {}
+                _token_tracker.add(
+                    int(usage.get("prompt_tokens") or 0),
+                    int(usage.get("completion_tokens") or 0),
+                )
             return out
 
         except requests.exceptions.RequestException as exc:

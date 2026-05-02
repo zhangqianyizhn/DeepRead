@@ -21,7 +21,7 @@ def run_agent(
     doc_index: DocIndex,
     user_question: str,
     logger: JsonlLogger,
-    max_rounds: int = 12,
+    max_rounds: int = 50,
     temperature: float = 0.0,
     api_key: Optional[str] = None,
     default_headers: Optional[Dict[str, str]] = None,
@@ -54,6 +54,7 @@ def run_agent(
     rerank_model: str = "Qwen/Qwen3-Reranker-8B",
     tool_fallback: bool = True,
     enable_reasoning: bool = True,
+    collected_texts: Optional[List[str]] = None,
 ) -> str:
     tools = make_tools_schema(doc_index, enable_semantic=enable_semantic)
 
@@ -266,6 +267,19 @@ def run_agent(
 
                 messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(out, ensure_ascii=False)})
 
+                if collected_texts is not None and isinstance(out, dict) and out.get("ok", True):
+                    if tool_name in ("bm25_search", "regex_search", "vector_search", "hybrid_search", "semantic_retrieval"):
+                        for r in out.get("results", []):
+                            if r.get("text"):
+                                collected_texts.append(r["text"])
+                            for nb in r.get("neighbors", []):
+                                if isinstance(nb, dict) and nb.get("type") == "text" and nb.get("text"):
+                                    collected_texts.append(nb["text"])
+                    elif tool_name == "read_section":
+                        for p in out.get("paragraphs", []):
+                            if isinstance(p, dict) and p.get("type") == "text" and p.get("text"):
+                                collected_texts.append(p["text"])
+                
                 if (
                     enable_multimodal
                     and tool_name in ("bm25_search", "regex_search", "vector_search", "hybrid_search", "semantic_retrieval")
