@@ -4,10 +4,10 @@ import argparse
 import os
 from typing import Dict, Optional
 
-from agent.logger import JsonlLogger
-from agent.runner import run_agent
-from tool.corpus import load_corpus
-from tool.utils import _normalize_neighbor_window
+from .logger import JsonlLogger
+from .runner import run_agent
+from ..tool.corpus import load_corpus
+from ..tool.utils import _normalize_neighbor_window
 
 
 def add_ask_arguments(parser: argparse.ArgumentParser) -> None:

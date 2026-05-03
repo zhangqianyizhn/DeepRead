@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 
-from agent.cli import add_ask_arguments, run_ask
-from index.ingest import add_parse_arguments, run_parse
+from .agent.cli import add_ask_arguments, run_ask
+from .index.ingest import add_parse_arguments, run_parse
 
 
 def main() -> None:

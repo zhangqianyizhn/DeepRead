@@ -3,16 +3,16 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from agent.llm import (
+from .llm import (
     _preview_messages,
     _preview_tool_calls,
     http_chat_completions,
     sanitize_for_vllm,
     should_sanitize_for_vllm,
 )
-from prompt.system import build_system_prompt
-from tool.fallback import fallback_tool_calls_from_text, strip_function_calls_block_any, strip_inline_tool_calls
-from tool.schema import make_tools_schema
+from ..prompt.system import build_system_prompt
+from ..tool.fallback import fallback_tool_calls_from_text, strip_function_calls_block_any, strip_inline_tool_calls
+from ..tool.schema import make_tools_schema
 
 
 def run_agent(
