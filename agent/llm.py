@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -87,11 +86,12 @@ def http_chat_completions(
     default_headers: Optional[Dict[str, str]] = None,
     timeout: int = 120,
     logger: Optional["JsonlLogger"] = None,
+    query_id: Optional[str] = "",
 ) -> Dict[str, Any]:
     if not api_key:
         err = RuntimeError("Please set OPENAI_API_KEY or OPENROUTER_API_KEY")
         if logger:
-            logger.log("llm_http_error", error=str(err))
+            logger.log("llm_http_error", query_id=query_id, error=str(err))
         raise err
 
     url = (base_url or "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
@@ -110,7 +110,7 @@ def http_chat_completions(
                 time.sleep(wait_s)
 
             if logger:
-                logger.log("llm_http_attempt", attempt=attempt + 1, url=url, model=payload_copy.get("model"))
+                logger.log("llm_http_attempt", query_id=query_id, attempt=attempt + 1, url=url, model=payload_copy.get("model"))
 
             resp = requests.post(url, headers=headers, json=payload_copy, timeout=timeout)
             status = resp.status_code
@@ -118,7 +118,7 @@ def http_chat_completions(
             if status in (429, 500, 502, 503, 504):
                 will_retry = attempt < max_retries - 1
                 if logger:
-                    logger.log("llm_http_error", status_code=status, error=f"HTTP {status}", attempt=attempt + 1, will_retry=will_retry)
+                    logger.log("llm_http_error", query_id=query_id, status_code=status, error=f"HTTP {status}", attempt=attempt + 1, will_retry=will_retry)
                 if will_retry:
                     continue
                 resp.raise_for_status()
@@ -126,12 +126,7 @@ def http_chat_completions(
             resp.raise_for_status()
             out = resp.json()
             if logger:
-                logger.log("llm_http_success", attempt=attempt + 1, status_code=status)
-                messages = payload.get("messages", [])
-                if messages[1].get("role") == "user":
-                    query_id = hashlib.sha1(messages[1].get("content", "")).hexdigest()[:16]
-                else:
-                    query_id = ""
+                logger.log("llm_http_success", query_id=query_id, attempt=attempt + 1, status_code=status)
                 
                 def msg_preview(msg: Dict[str, Any]) -> str:
                     role = msg.get("role")
@@ -156,7 +151,7 @@ def http_chat_completions(
 
                 out_tokens = [{out_preview(out): count_tokens(str(out['choices']))}]
                 logger.log("llm_token_debug", 
-                           query_id=query_id if query_id else "no_query_id", 
+                           query_id=query_id, 
                            input_tokens=in_tokens, 
                            output_tokens=out_tokens)
             if _token_tracker is not None:
@@ -170,7 +165,7 @@ def http_chat_completions(
         except requests.exceptions.RequestException as exc:
             will_retry = attempt < max_retries - 1
             if logger:
-                logger.log("llm_http_error", error=str(exc), attempt=attempt + 1, will_retry=will_retry)
+                logger.log("llm_http_error", query_id=query_id, error=str(exc), attempt=attempt + 1, will_retry=will_retry)
             if will_retry:
                 continue
             raise
@@ -178,7 +173,7 @@ def http_chat_completions(
         except Exception as exc:  # pragma: no cover
             will_retry = attempt < max_retries - 1
             if logger:
-                logger.log("llm_http_error", error=str(exc), attempt=attempt + 1, will_retry=will_retry)
+                logger.log("llm_http_error", query_id=query_id, error=str(exc), attempt=attempt + 1, will_retry=will_retry)
             if will_retry:
                 continue
             raise

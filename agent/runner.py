@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -57,6 +58,7 @@ def run_agent(
     collected_texts: Optional[List[str]] = None,
 ) -> str:
     tools = make_tools_schema(doc_index, enable_semantic=enable_semantic)
+    query_id = hashlib.sha1(user_question.encode('utf-8')).hexdigest()[:16]
 
     if disable_bm25:
         tools = [t for t in tools if (t.get("function") or {}).get("name") != "bm25_search"]
@@ -92,15 +94,15 @@ def run_agent(
             "include_reasoning": bool(enable_reasoning),
         }
 
-        logger.log("llm_request", round=round_id, base_url=base_url, context_delta_preview=_preview_messages(messages[prev_msg_count:]))
+        logger.log("llm_request", query_id=query_id, round=round_id, base_url=base_url, context_delta_preview=_preview_messages(messages[prev_msg_count:]))
         prev_msg_count = len(messages)
 
         payload_to_send = sanitize_for_vllm(req_payload, allow_tools=True) if do_sanitize else req_payload
 
         try:
-            resp = http_chat_completions(api_key=api_key, base_url=base_url, payload=payload_to_send, default_headers=default_headers, logger=logger)
+            resp = http_chat_completions(query_id=query_id, api_key=api_key, base_url=base_url, payload=payload_to_send, default_headers=default_headers, logger=logger)
         except Exception as exc:
-            logger.log("llm_http_error", error=str(exc), round=round_id)
+            logger.log("llm_http_error", query_id=query_id, error=str(exc), round=round_id)
             resp = {}
 
         msg = (resp.get("choices") or [{}])[0].get("message", {})  # type: ignore
@@ -126,6 +128,7 @@ def run_agent(
                 recovered_from_text = True
                 logger.log(
                     "tool_calls_recovered_from_text",
+                    query_id=query_id,
                     round=round_id,
                     recovered=_preview_tool_calls(tool_calls),
                     recovered_kind=recovered_meta.get("kind"),
@@ -153,6 +156,7 @@ def run_agent(
 
         logger.log(
             "llm_response",
+            query_id=query_id,
             round=round_id,
             content=msg.get("content"),
             reasoning_content=reasoning_content if enable_reasoning else None,
@@ -166,13 +170,13 @@ def run_agent(
         if not tool_calls:
             final_answer = (msg.get("content") or "").strip()
             if final_answer:
-                logger.log("final_answer", answer=final_answer, context_delta_preview=_preview_messages(messages[prev_msg_count:]))
+                logger.log("final_answer", query_id=query_id, answer=final_answer, context_delta_preview=_preview_messages(messages[prev_msg_count:]))
                 return final_answer
 
             if enable_reasoning and (reasoning_content is not None) and str(reasoning_content).strip():
-                logger.log("llm_thinking_only", round=round_id, reasoning_preview=str(reasoning_content)[:2000])
+                logger.log("llm_thinking_only", query_id=query_id, round=round_id, reasoning_preview=str(reasoning_content)[:2000])
             else:
-                logger.log("llm_empty_message", round=round_id)
+                logger.log("llm_empty_message", query_id=query_id, round=round_id)
             continue
 
         for tc in tool_calls or []:
@@ -181,10 +185,10 @@ def run_agent(
                 args_raw = (tc.get("function") or {}).get("arguments")
                 args = args_raw if isinstance(args_raw, dict) else json.loads(args_raw or "{}")
             except Exception as exc:
-                logger.log("tool_args_parse_error", tool=tool_name, raw=str(args_raw), error=str(exc))
+                logger.log("tool_args_parse_error", query_id=query_id, tool=tool_name, raw=str(args_raw), error=str(exc))
                 args = {}
 
-            logger.log("tool_call", tool=tool_name, args=args, tool_call_id=tc.get("id"))
+            logger.log("tool_call", query_id=query_id, tool=tool_name, args=args, tool_call_id=tc.get("id"))
 
             try:
                 if tool_name == "read_section":
@@ -308,6 +312,7 @@ def run_agent(
 
                 logger.log(
                     "tool_result",
+                    query_id=query_id,
                     tool=tool_name,
                     ok=bool(out.get("ok", True)) if isinstance(out, dict) else True,
                     result=out,
@@ -320,6 +325,7 @@ def run_agent(
                 messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(err, ensure_ascii=False)})
                 logger.log(
                     "tool_result",
+                    query_id=query_id,
                     tool=tool_name,
                     ok=False,
                     error=str(exc),
@@ -328,5 +334,5 @@ def run_agent(
                 )
                 prev_msg_count = len(messages)
 
-    logger.log("max_rounds_reached", max_rounds=max_rounds)
+    logger.log("max_rounds_reached", query_id=query_id, max_rounds=max_rounds)
     return "(Reached maximum rounds, no final answer generated)"
