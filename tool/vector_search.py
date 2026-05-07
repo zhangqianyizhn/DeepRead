@@ -43,6 +43,7 @@ def vector_search(
     embed_base_url: Optional[str] = None,
     embed_model: Optional[str] = None,
     neighbor_window: Optional[Tuple[int, int]] = None,
+    use_doubao_embedder: Optional[bool] = True,
 ) -> Dict[str, Any]:
     if not query:
         return {"ok": False, "error": "empty query"}
@@ -53,7 +54,23 @@ def vector_search(
     api_key = embed_api_key or os.getenv("EMBED_API_KEY")
     base_url = (embed_base_url or os.getenv("EMBED_BASE_URL") or "https://api.openai.com/v1").rstrip("/")
 
-    q_list = http_embeddings(api_key=api_key, base_url=base_url, model=model_name, inputs=[query])
+    if use_doubao_embedder:
+        def _http_embed(model: str, inputs: List[str]) -> List[List[float]]:
+            import requests
+
+            url = embed_base_url
+            headers = {"Content-Type": "application/json"}
+            if embed_api_key:
+                headers["Authorization"] = f"Bearer {embed_api_key}"
+            payload = {"model": model, "input": [{"type":"text", "text": t} for t in inputs]}
+            resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            # print(data)
+            return [data.get("data").get("embedding")]
+        q_list = _http_embed(model=model_name, inputs=[query])
+    else:
+        q_list = http_embeddings(api_key=api_key, base_url=base_url, model=model_name, inputs=[query])
     if not q_list:
         return {"ok": False, "error": "embedding_failed"}
 

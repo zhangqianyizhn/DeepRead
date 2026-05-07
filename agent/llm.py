@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import Any, Dict, List, Optional
 
 import requests
+import tiktoken
 from src.core.token_tracer_util import token_tracker as _token_tracker
 
+def count_tokens(text: str) -> int:
+    enc = tiktoken.get_encoding("cl100k_base")
+    return len(enc.encode(text))
 
 def should_sanitize_for_vllm(base_url: Optional[str]) -> bool:
     if not base_url:
@@ -122,6 +127,38 @@ def http_chat_completions(
             out = resp.json()
             if logger:
                 logger.log("llm_http_success", attempt=attempt + 1, status_code=status)
+                messages = payload.get("messages", [])
+                if messages[1].get("role") == "user":
+                    query_id = hashlib.sha1(messages[1].get("content", "")).hexdigest()[:16]
+                else:
+                    query_id = ""
+                
+                def msg_preview(msg: Dict[str, Any]) -> str:
+                    role = msg.get("role")
+                    if role == 'assistant':
+                        if msg.get("tool_calls") and isinstance(msg.get("tool_calls"), list) and len(msg.get("tool_calls")) > 0:
+                            return f"assistant tool_calls: {msg.get('tool_calls')[0]['function']['name']}"
+                        else:
+                            return f"assistant content: {msg.get('content', '')[:20]}, reasoning: {msg.get('reasoning', '')[:20]}"
+                    content = msg.get("content", "")
+                    return f"{role}: {content[:20]}"
+                
+                in_tokens = [{msg_preview(msg) : count_tokens(str(msg))} for msg in payload.get("messages", [])]
+
+                def out_preview(out: Dict[str, Any]) -> str:
+                    choices = out.get("choices", [])
+                    if not choices:
+                        return "<no choices>"
+                    finish_reason = choices[0].get("finish_reason")
+                    content = choices[0].get("message", {}).get("content", "")
+                    reasoning_content = choices[0].get("message", {}).get("reasoning_content", "")
+                    return f"finish_reason: {finish_reason}, content: {content[:20]}, reasoning_content: {reasoning_content[:20]}"
+
+                out_tokens = [{out_preview(out): count_tokens(str(out['choices']))}]
+                logger.log("llm_token_debug", 
+                           query_id=query_id if query_id else "no_query_id", 
+                           input_tokens=in_tokens, 
+                           output_tokens=out_tokens)
             if _token_tracker is not None:
                 usage = out.get("usage") or {}
                 _token_tracker.add(
