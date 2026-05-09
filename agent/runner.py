@@ -191,7 +191,11 @@ def run_agent(
             logger.log("tool_call", query_id=query_id, tool=tool_name, args=args, tool_call_id=tc.get("id"))
 
             try:
-                if tool_name == "read_section":
+                if tool_name == "get_doc_structure":
+                    raw_ids = args.get("doc_id")
+                    doc_ids = [str(d) for d in raw_ids] if isinstance(raw_ids, list) else None
+                    out = doc_index.get_doc_structure(doc_ids=doc_ids)
+                elif tool_name == "read_section":
                     out = doc_index.read_section(
                         doc_id=args.get("doc_id"),
                         node_id=args.get("node_id"),

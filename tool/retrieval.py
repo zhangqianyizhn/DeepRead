@@ -110,7 +110,42 @@ class DocIndex:
                     f"tokens={node.get('_model_token_count', len(node['_tokens']))} | children={node['children']}"
                 )
         return "\n".join(lines)
+    
+    def get_doc_structure(self, doc_ids: Optional[List[str]] = None) -> Dict[str, Any]:
+        all_doc_ids = list(self.nodes_by_doc.keys())
+        total = len(all_doc_ids)
 
+        if doc_ids is None:
+            return {
+                "ok": True,
+                "doc_id_range": f"1-{total}",
+                "total_docs": total,
+                "hint": "Pass specific doc_ids to get node structure.",
+            }
+        
+        lines: List[str] = []
+        missing: List[str] = []
+        for did in doc_ids:
+            did_str = str(did)
+            doc_nodes = self.nodes_by_doc.get(did_str)
+            if doc_nodes is None:
+                missing.append(did_str)
+                continue
+            for node_id, node in doc_nodes.items():
+                lines.append(
+                    f"- (doc_id={did_str}) "
+                    f"[{node_id}] {node['title']} | paragraphs={len(node['paragraphs'])} | "
+                    f"tokens={node.get('_model_token_count', len(node['_tokens']))} | children={node['children']}"
+                )
+
+        result: Dict[str, Any] = {
+            "ok": True,
+            "structure": "\n".join(lines) if lines else "No matching documents found.",
+        }
+        if missing:
+            result["missing_doc_ids"] = missing
+        return result
+        
     def _neighbor_context_for(
         self,
         doc_id: str,

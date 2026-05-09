@@ -18,6 +18,28 @@ def make_tools_schema(doc_index: DocIndex, enable_semantic: bool = False) -> Lis
         {
             "type": "function",
             "function": {
+                "name": "get_doc_structure",
+                "description": (
+                    "Retrieve the Directory Structure of one or more documents. "
+                    "Pass a list of doc_id strings to get their Directory Structure. "
+                    "If doc_ids is omitted or null, returns only the total document count and id range."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "doc_id": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of doc_id values to inspect (e.g. [\"1\", \"3\"]). Omit to get the id range only."
+                        }
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "read_section",
                 "description": "Read a specific paragraph range from the specified document node. Returns paragraphs from start_paragraph (inclusive) to end_paragraph (exclusive).",
                 "parameters": {
