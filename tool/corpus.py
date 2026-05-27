@@ -29,6 +29,7 @@ def load_corpus(paths: List[str], neighbor_window: Optional[Tuple[int, int]]) ->
     idmaps: List[Dict[str, Any]] = []
     models: List[str] = []
     normalized_flags: List[bool] = []
+    doc_id_map: Dict[str, str] = {}
 
     for idx, path in enumerate(paths):
         corpus_path = Path(path).expanduser().resolve()
@@ -40,6 +41,12 @@ def load_corpus(paths: List[str], neighbor_window: Optional[Tuple[int, int]]) ->
             raise ValueError("corpus JSON must contain a non-empty 'nodes' list")
 
         doc_id = str(idx + 1)
+        # 从 corpus 文件名提取 human-readable 文档名：3M_2015_10K_corpus.json -> 3M_2015_10K
+        doc_name = corpus_path.stem
+        if doc_name.endswith("_corpus"):
+            doc_name = doc_name[:-7]
+        doc_id_map[doc_id] = doc_name
+
         for node in nodes:
             node["doc_id"] = doc_id
         _resolve_image_paths(nodes, corpus_path.parent)
@@ -75,6 +82,7 @@ def load_corpus(paths: List[str], neighbor_window: Optional[Tuple[int, int]]) ->
         normalized_flags.append(bool(vector_store.get("normalized", False)))
 
     doc_index = DocIndex(all_nodes, neighbor_window=neighbor_window)
+    doc_index.doc_id_map = doc_id_map
 
     if matrices:
         doc_index._vec_matrix = np.concatenate(matrices, axis=0)

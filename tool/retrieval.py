@@ -99,6 +99,7 @@ class DocIndex:
         self._vec_idmap: List[Dict[str, Any]] = []
         self._vec_model_name: Optional[str] = None
         self._vec_normalized: bool = False
+        self.doc_id_map: Dict[str, str] = {}
 
     def overview(self) -> str:
         lines: List[str] = []
