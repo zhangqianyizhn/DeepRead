@@ -13,7 +13,7 @@ from typing import Any
 class JsonlLogger:
     def __init__(self, path: str) -> None:
         self.path = path
-        self._lock = threading.lock()
+        self._lock = threading.Lock()
         if not os.path.exists(path):
             with open(self.path, "w", encoding="utf-8"):
                 pass
