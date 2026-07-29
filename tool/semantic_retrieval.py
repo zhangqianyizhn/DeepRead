@@ -48,7 +48,12 @@ def _with_neighbors(
     did = str(ref.get("doc_id"))
     nid = str(ref.get("node_id"))
     para_list = ref.get("paragraph_indexes") or []
-    paragraph_index = int(para_list[0]) if para_list else 0
+    hit_paragraph_index = ref.get("hit_paragraph_index")
+    paragraph_index = int(
+        hit_paragraph_index
+        if hit_paragraph_index is not None
+        else (para_list[0] if para_list else 0)
+    )
 
     neighbors = doc_index._neighbor_context_for(
         did,
@@ -67,7 +72,12 @@ def _with_neighbors(
 
     return {
         "score": _round_score(score),
-        "ref": {"doc_id": did, "node_id": nid, "paragraph_indexes": paragraph_indexes},
+        "ref": {
+            "doc_id": did,
+            "node_id": nid,
+            "hit_paragraph_index": paragraph_index,
+            "paragraph_indexes": paragraph_indexes,
+        },
         "text": candidate.get("text", ""),
         "neighbors": neighbors,
     }

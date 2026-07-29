@@ -11,8 +11,27 @@ def _neighbor_hint_sentence(doc_index: DocIndex) -> str:
     return f" Neighbor expansion is enabled: returned hits may include up to {int(up)} paragraph(s) above and {abs(int(down))} paragraph(s) below the matched paragraph."
 
 
-def make_tools_schema(doc_index: DocIndex, enable_semantic: bool = False) -> List[Dict[str, Any]]:
+def make_tools_schema(
+    doc_index: DocIndex,
+    enable_semantic: bool = False,
+    suggested_top_k: int = 1,
+    max_top_k: int = 10,
+) -> List[Dict[str, Any]]:
     nh = _neighbor_hint_sentence(doc_index)
+    maximum = max(1, int(max_top_k))
+    suggested = max(1, min(int(suggested_top_k), maximum))
+    top_k_property: Dict[str, Any] = {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": maximum,
+        "default": suggested,
+        "description": (
+            f"Number of new full-text results requested (suggested {suggested}, "
+            f"maximum {maximum}). Increase it when broader recall is needed. "
+            "Previously returned chunks may additionally appear as compact marker "
+            "entries in the ranked results list."
+        ),
+    }
 
     tools: List[Dict[str, Any]] = [
         {
@@ -64,21 +83,25 @@ def make_tools_schema(doc_index: DocIndex, enable_semantic: bool = False) -> Lis
         "query": {"type": "string"},
         "scope": {"type": "string", "enum": ["full", "doc"], "default": "full"},
         "doc_id": {"type": "string", "default": None},
+        "top_k": dict(top_k_property),
     }
     regex_props: Dict[str, Any] = {
         "pattern": {"type": "string"},
         "scope": {"type": "string", "enum": ["full", "doc"], "default": "full"},
         "doc_id": {"type": "string", "default": None},
+        "top_k": dict(top_k_property),
     }
     vector_props: Dict[str, Any] = {
         "query": {"type": "string"},
         "scope": {"type": "string", "enum": ["full", "doc"], "default": "full"},
         "doc_id": {"type": "string", "default": None},
+        "top_k": dict(top_k_property),
     }
     hybrid_props: Dict[str, Any] = {
         "query": {"type": "string"},
         "scope": {"type": "string", "enum": ["full", "doc"], "default": "full"},
         "doc_id": {"type": "string", "default": None},
+        "top_k": dict(top_k_property),
     }
 
     tools.extend(
@@ -123,6 +146,7 @@ def make_tools_schema(doc_index: DocIndex, enable_semantic: bool = False) -> Lis
             "query": {"type": "string"},
             "scope": {"type": "string", "enum": ["full", "doc"], "default": "full"},
             "doc_id": {"type": "string", "default": None},
+            "top_k": dict(top_k_property),
         }
         tools.append(
             {

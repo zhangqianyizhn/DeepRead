@@ -58,10 +58,11 @@ def hybrid_search(
         ref = result.get("ref") or {}
         did = str(ref.get("doc_id"))
         nid = str(ref.get("node_id"))
+        paragraph_index = ref.get("hit_paragraph_index")
         para_list = ref.get("paragraph_indexes") or []
-        if not para_list:
+        if paragraph_index is None and not para_list:
             continue
-        paragraph_index = int(para_list[0])
+        paragraph_index = int(paragraph_index if paragraph_index is not None else para_list[0])
         score_val = float(result.get("score", 0.0))
         key = (did, nid, paragraph_index)
         bm25_map[key] = score_val
@@ -73,10 +74,11 @@ def hybrid_search(
         ref = result.get("ref") or {}
         did = str(ref.get("doc_id"))
         nid = str(ref.get("node_id"))
+        paragraph_index = ref.get("hit_paragraph_index")
         para_list = ref.get("paragraph_indexes") or []
-        if not para_list:
+        if paragraph_index is None and not para_list:
             continue
-        paragraph_index = int(para_list[0])
+        paragraph_index = int(paragraph_index if paragraph_index is not None else para_list[0])
         score_val = float(result.get("score", 0.0))
         key = (did, nid, paragraph_index)
         vec_map[key] = score_val
@@ -129,7 +131,12 @@ def hybrid_search(
         hits.append(
             {
                 "score": _round_score(fused_score),
-                "ref": {"doc_id": did, "node_id": nid, "paragraph_indexes": paragraph_indexes},
+                "ref": {
+                    "doc_id": did,
+                    "node_id": nid,
+                    "hit_paragraph_index": paragraph_index,
+                    "paragraph_indexes": paragraph_indexes,
+                },
                 "text": text,
                 "neighbors": neighbors,
             }

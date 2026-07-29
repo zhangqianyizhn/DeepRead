@@ -10,6 +10,27 @@ def _read_file(path: str) -> str:
         return f.read()
 
 
+def ensure_source_header(md_path: str, source_name: str) -> None:
+    """Prepend a searchable source-name node to a processed Markdown document."""
+    clean_name = " ".join(str(source_name).splitlines()).strip()
+    if not clean_name:
+        return
+
+    content = _read_file(md_path)
+    header = f"# Source Document: {clean_name}\n\nSource name: {clean_name}\n\n"
+    if content.startswith(header):
+        return
+    if content.startswith("# Source Document:"):
+        # The file was already processed by this feature. Avoid stacking headers.
+        return
+
+    temp_path = f"{md_path}.source_header.tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        f.write(content)
+    os.replace(temp_path, md_path)
+
+
 def _is_heading(line: str) -> Optional[Dict[str, Any]]:
     """Return {'level': int, 'title': str} if line is a markdown heading (#,##,...), else None."""
     m = re.match(r"^\s*(#{1,6})\s+(.*)$", line)
@@ -238,4 +259,3 @@ def parse_markdown_to_corpus(md_path: str) -> Dict[str, Any]:
         _append_paragraph(current_node, paragraph_text)
 
     return {"nodes": nodes}
-

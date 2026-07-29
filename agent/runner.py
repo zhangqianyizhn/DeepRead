@@ -14,6 +14,7 @@ from .llm import (
 from ..prompt.system import build_system_prompt
 from ..tool.fallback import fallback_tool_calls_from_text, strip_function_calls_block_any, strip_inline_tool_calls
 from ..tool.schema import make_tools_schema
+from .search_session import SearchSessionState, normalize_requested_top_k
 
 
 def run_agent(
@@ -56,8 +57,17 @@ def run_agent(
     tool_fallback: bool = True,
     enable_reasoning: bool = True,
     collected_texts: Optional[List[str]] = None,
+    enable_session_pagination: bool = True,
+    agent_topk_max: int = 10,
+    pagination_candidate_limit: int = 50,
+    additional_instructions: Optional[List[str] | str] = None,
 ) -> str:
-    tools = make_tools_schema(doc_index, enable_semantic=enable_semantic)
+    tools = make_tools_schema(
+        doc_index,
+        enable_semantic=enable_semantic,
+        suggested_top_k=bm25_topk,
+        max_top_k=agent_topk_max,
+    )
     query_id = hashlib.sha1(user_question.encode('utf-8')).hexdigest()[:16]
 
     if disable_bm25:
@@ -74,10 +84,23 @@ def run_agent(
         tools = [t for t in tools if (t.get("function") or {}).get("name") != "read_section"]
 
     tool_names = [(t.get("function") or {}).get("name") for t in tools]
-    system_prompt = build_system_prompt(doc_index, tool_names, enable_reasoning=enable_reasoning)
+    system_prompt = build_system_prompt(
+        doc_index,
+        tool_names,
+        enable_reasoning=enable_reasoning,
+        additional_instructions=additional_instructions,
+    )
 
     messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_question}]
     prev_msg_count = 1
+    search_session = SearchSessionState()
+    search_tool_names = {
+        "bm25_search",
+        "regex_search",
+        "vector_search",
+        "hybrid_search",
+        "semantic_retrieval",
+    }
 
     do_sanitize = should_sanitize_for_vllm(base_url)
 
@@ -191,6 +214,8 @@ def run_agent(
             logger.log("tool_call", query_id=query_id, tool=tool_name, args=args, tool_call_id=tc.get("id"))
 
             try:
+                requested_top_k: Optional[int] = None
+                candidate_top_k: Optional[int] = None
                 if tool_name == "get_doc_structure":
                     raw_ids = args.get("doc_id")
                     doc_ids = [str(d) for d in raw_ids] if isinstance(raw_ids, list) else None
@@ -204,29 +229,59 @@ def run_agent(
                         include_images=enable_multimodal,
                     )
                 elif tool_name == "bm25_search":
+                    requested_top_k = normalize_requested_top_k(
+                        args.get("top_k"), bm25_topk, agent_topk_max
+                    )
+                    candidate_top_k = (
+                        search_session.candidate_top_k(
+                            requested_top_k, pagination_candidate_limit
+                        )
+                        if enable_session_pagination
+                        else requested_top_k
+                    )
                     out = doc_index.bm25_search(
                         query=args.get("query", ""),
                         scope=args.get("scope", "full"),
                         doc_id=args.get("doc_id"),
-                        top_k=int(bm25_topk),
+                        top_k=candidate_top_k,
                         include_images=enable_multimodal,
                         neighbor_window=effective_neighbor_window,
                     )
                 elif tool_name == "regex_search":
+                    requested_top_k = normalize_requested_top_k(
+                        args.get("top_k"), regex_topk, agent_topk_max
+                    )
+                    candidate_top_k = (
+                        search_session.candidate_top_k(
+                            requested_top_k, pagination_candidate_limit
+                        )
+                        if enable_session_pagination
+                        else requested_top_k
+                    )
                     out = doc_index.regex_search(
                         pattern=args.get("pattern", ""),
                         scope=args.get("scope", "full"),
                         doc_id=args.get("doc_id"),
-                        top_k=int(regex_topk),
+                        top_k=candidate_top_k,
                         include_images=enable_multimodal,
                         neighbor_window=effective_neighbor_window,
                     )
                 elif tool_name == "vector_search":
+                    requested_top_k = normalize_requested_top_k(
+                        args.get("top_k"), vector_topk, agent_topk_max
+                    )
+                    candidate_top_k = (
+                        search_session.candidate_top_k(
+                            requested_top_k, pagination_candidate_limit
+                        )
+                        if enable_session_pagination
+                        else requested_top_k
+                    )
                     out = doc_index.vector_search(
                         query=args.get("query", ""),
                         scope=args.get("scope", "full"),
                         doc_id=args.get("doc_id"),
-                        top_k=int(vector_topk),
+                        top_k=candidate_top_k,
                         include_images=enable_multimodal,
                         embed_api_key=embed_api_key,
                         embed_base_url=embed_base_url,
@@ -234,15 +289,25 @@ def run_agent(
                         neighbor_window=effective_neighbor_window,
                     )
                 elif tool_name == "hybrid_search":
+                    requested_top_k = normalize_requested_top_k(
+                        args.get("top_k"), hybrid_topk, agent_topk_max
+                    )
+                    candidate_top_k = (
+                        search_session.candidate_top_k(
+                            requested_top_k, pagination_candidate_limit
+                        )
+                        if enable_session_pagination
+                        else requested_top_k
+                    )
                     out = doc_index.hybrid_search(
                         query=args.get("query", ""),
                         scope=args.get("scope", "full"),
                         doc_id=args.get("doc_id"),
-                        top_k=int(hybrid_topk),
+                        top_k=candidate_top_k,
                         bm25_weight=float(hybrid_bm25_weight),
                         vector_weight=float(hybrid_vector_weight),
-                        top_k_bm25=int(hybrid_topk_bm25),
-                        top_k_vec=int(hybrid_topk_vec),
+                        top_k_bm25=max(int(hybrid_topk_bm25), candidate_top_k),
+                        top_k_vec=max(int(hybrid_topk_vec), candidate_top_k),
                         include_images=enable_multimodal,
                         embed_api_key=embed_api_key,
                         embed_base_url=embed_base_url,
@@ -250,13 +315,23 @@ def run_agent(
                         neighbor_window=effective_neighbor_window,
                     )
                 elif tool_name == "semantic_retrieval":
+                    requested_top_k = normalize_requested_top_k(
+                        args.get("top_k"), semantic_topk2, agent_topk_max
+                    )
+                    candidate_top_k = (
+                        search_session.candidate_top_k(
+                            requested_top_k, pagination_candidate_limit
+                        )
+                        if enable_session_pagination
+                        else requested_top_k
+                    )
                     out = doc_index.semantic_retrieval(
                         query=args.get("query", ""),
                         scope=args.get("scope", "full"),
                         doc_id=args.get("doc_id"),
                         stage1_method=str(semantic_stage1_method),
-                        top_k1=int(semantic_topk1),
-                        top_k2=int(semantic_topk2),
+                        top_k1=max(int(semantic_topk1), candidate_top_k),
+                        top_k2=candidate_top_k,
                         stage1_hybrid_topk_bm25=int(semantic_stage1_hybrid_topk_bm25),
                         stage1_hybrid_topk_vec=int(semantic_stage1_hybrid_topk_vec),
                         include_images=enable_multimodal,
@@ -272,6 +347,19 @@ def run_agent(
                     )
                 else:
                     out = {"ok": False, "error": f"Tool '{tool_name}' not implemented"}
+
+                if (
+                    enable_session_pagination
+                    and tool_name in search_tool_names
+                    and requested_top_k is not None
+                    and candidate_top_k is not None
+                ):
+                    out = search_session.paginate(
+                        out,
+                        requested_top_k=requested_top_k,
+                        round_id=round_id,
+                        candidate_top_k=candidate_top_k,
+                    )
 
                 messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(out, ensure_ascii=False)})
 

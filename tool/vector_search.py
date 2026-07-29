@@ -144,7 +144,12 @@ def vector_search(
         hits.append(
             {
                 "score": _round_score(sims[int(rank)]),
-                "ref": {"doc_id": did, "node_id": nid, "paragraph_indexes": paragraph_indexes},
+                "ref": {
+                    "doc_id": did,
+                    "node_id": nid,
+                    "hit_paragraph_index": paragraph_index,
+                    "paragraph_indexes": paragraph_indexes,
+                },
                 "text": text,
                 "neighbors": neighbors,
             }

@@ -82,7 +82,12 @@ def bm25_search(
         hits.append(
             {
                 "score": _round_score(raw_score),
-                "ref": {"doc_id": did, "node_id": nid, "paragraph_indexes": paragraph_indexes},
+                "ref": {
+                    "doc_id": did,
+                    "node_id": nid,
+                    "hit_paragraph_index": paragraph_index,
+                    "paragraph_indexes": paragraph_indexes,
+                },
                 "text": doc["text"],
                 "neighbors": neighbors,
             }

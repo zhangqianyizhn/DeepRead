@@ -48,6 +48,31 @@ def add_ask_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--regex-topk", type=int, default=int(os.getenv("REGEX_TOPK", "1")))
     parser.add_argument("--vector-topk", type=int, default=int(os.getenv("VECTOR_TOPK", "1")))
     parser.add_argument("--hybrid-topk", type=int, default=int(os.getenv("HYBRID_TOPK", "1")))
+    parser.add_argument(
+        "--agent-topk-max",
+        type=int,
+        default=int(os.getenv("AGENT_TOPK_MAX", "10")),
+        help="maximum top_k the agent may request per search call",
+    )
+    parser.add_argument(
+        "--pagination-candidate-limit",
+        type=int,
+        default=int(os.getenv("PAGINATION_CANDIDATE_LIMIT", "50")),
+        help="maximum backend candidates scanned when replacing already-seen chunks",
+    )
+    parser.add_argument(
+        "--session-pagination",
+        dest="enable_session_pagination",
+        action="store_true",
+        default=True,
+        help="return compact markers for repeated hits and fill results with unseen chunks",
+    )
+    parser.add_argument(
+        "--no-session-pagination",
+        dest="enable_session_pagination",
+        action="store_false",
+        help="disable per-session visible result pagination",
+    )
 
     parser.add_argument("--hybrid-topk-bm25", type=int, default=int(os.getenv("HYBRID_TOPK_BM25", "30")))
     parser.add_argument("--hybrid-topk-vec", type=int, default=int(os.getenv("HYBRID_TOPK_VEC", "30")))
@@ -151,6 +176,9 @@ def run_ask(args: argparse.Namespace) -> str:
         rerank_model=args.rerank_model,
         tool_fallback=args.tool_fallback,
         enable_reasoning=args.enable_reasoning,
+        enable_session_pagination=args.enable_session_pagination,
+        agent_topk_max=args.agent_topk_max,
+        pagination_candidate_limit=args.pagination_candidate_limit,
     )
     print("\n==== Final Answer ====")
     print(answer)
