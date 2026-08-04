@@ -11,12 +11,18 @@ from typing import Any
 # Logging helper (JSONL)
 # ------------------------------
 class JsonlLogger:
+    _locks_guard = threading.Lock()
+    _locks: dict[str, threading.Lock] = {}
+
     def __init__(self, path: str) -> None:
         self.path = path
-        self._lock = threading.Lock()
-        if not os.path.exists(path):
-            with open(self.path, "w", encoding="utf-8"):
-                pass
+        lock_key = os.path.abspath(path)
+        with self._locks_guard:
+            self._lock = self._locks.setdefault(lock_key, threading.Lock())
+        with self._lock:
+            if not os.path.exists(path):
+                with open(self.path, "w", encoding="utf-8"):
+                    pass
 
     def log(self, event: str, **payload: Any) -> None:
         rec = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **payload}

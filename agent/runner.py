@@ -61,6 +61,8 @@ def run_agent(
     agent_topk_max: int = 10,
     pagination_candidate_limit: int = 50,
     additional_instructions: Optional[List[str] | str] = None,
+    preload_directory_structure: bool = False,
+    query_id: Optional[str] = None,
 ) -> str:
     tools = make_tools_schema(
         doc_index,
@@ -68,7 +70,14 @@ def run_agent(
         suggested_top_k=bm25_topk,
         max_top_k=agent_topk_max,
     )
-    query_id = hashlib.sha1(user_question.encode('utf-8')).hexdigest()[:16]
+    query_id = query_id or hashlib.sha1(user_question.encode('utf-8')).hexdigest()[:16]
+
+    if preload_directory_structure:
+        tools = [
+            t
+            for t in tools
+            if (t.get("function") or {}).get("name") != "get_doc_structure"
+        ]
 
     if disable_bm25:
         tools = [t for t in tools if (t.get("function") or {}).get("name") != "bm25_search"]
@@ -89,6 +98,7 @@ def run_agent(
         tool_names,
         enable_reasoning=enable_reasoning,
         additional_instructions=additional_instructions,
+        preload_directory_structure=preload_directory_structure,
     )
 
     messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_question}]

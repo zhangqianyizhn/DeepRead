@@ -1,7 +1,10 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from DeepRead.agent.logger import JsonlLogger
 from DeepRead.agent.runner import run_agent
 from DeepRead.agent.search_session import (
     SearchSessionState,
@@ -27,6 +30,58 @@ def _hit(paragraph_index: int, text: str) -> dict:
 
 
 class SearchSessionStateTest(unittest.TestCase):
+    def test_jsonl_loggers_share_a_lock_for_the_same_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = str(Path(temp_dir) / "deepread_run.log")
+            first = JsonlLogger(path)
+            first.log("first")
+            second = JsonlLogger(path)
+
+            self.assertIs(first._lock, second._lock)
+            self.assertEqual(len(Path(path).read_text(encoding="utf-8").splitlines()), 1)
+
+    def test_per_query_mode_preloads_directory_and_removes_structure_tool(self) -> None:
+        class FakeIndex:
+            neighbor_window = None
+            nodes_by_doc = {"1": {}}
+
+            @staticmethod
+            def overview() -> str:
+                return "- (doc_id=1) [42] Financial Statements"
+
+        class FakeLogger:
+            def log(self, *args, **kwargs) -> None:
+                pass
+
+        sent_payloads = []
+
+        def fake_chat(**kwargs):
+            sent_payloads.append(kwargs["payload"])
+            return {"choices": [{"message": {"content": "done"}}]}
+
+        with patch(
+            "DeepRead.agent.runner.http_chat_completions", side_effect=fake_chat
+        ):
+            answer = run_agent(
+                model="test",
+                base_url=None,
+                doc_index=FakeIndex(),
+                user_question="question",
+                logger=FakeLogger(),
+                max_rounds=1,
+                preload_directory_structure=True,
+                query_id="sample:0",
+            )
+
+        self.assertEqual(answer, "done")
+        payload = sent_payloads[0]
+        self.assertIn("Financial Statements", payload["messages"][0]["content"])
+        self.assertNotIn("get_doc_structure", payload["messages"][0]["content"])
+        self.assertNotIn(
+            "get_doc_structure",
+            [tool["function"]["name"] for tool in payload["tools"]],
+        )
+
     def test_agent_top_k_is_clamped(self) -> None:
         self.assertEqual(normalize_requested_top_k(None, 1, 10), 1)
         self.assertEqual(normalize_requested_top_k("6", 1, 10), 6)
