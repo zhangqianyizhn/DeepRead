@@ -10,6 +10,24 @@ def _read_file(path: str) -> str:
         return f.read()
 
 
+def _source_search_tokens(source_name: str) -> List[str]:
+    """Return whitespace-friendly aliases while preserving the original name."""
+    parts = [part for part in re.split(r"[^A-Za-z0-9]+", source_name) if part]
+    aliases: List[str] = []
+    for part in parts:
+        aliases.append(part)
+        match = re.fullmatch(r"(\d{4})(Q[1-4])", part, flags=re.IGNORECASE)
+        if match:
+            aliases.extend(match.groups())
+        if re.fullmatch(r"10K", part, flags=re.IGNORECASE):
+            aliases.append("10-K")
+        elif re.fullmatch(r"10Q", part, flags=re.IGNORECASE):
+            aliases.append("10-Q")
+
+    # Preserve order while preventing repeated company/year tokens.
+    return list(dict.fromkeys(aliases))
+
+
 def ensure_source_header(md_path: str, source_name: str) -> None:
     """Prepend a searchable source-name node to a processed Markdown document."""
     clean_name = " ".join(str(source_name).splitlines()).strip()
@@ -17,7 +35,12 @@ def ensure_source_header(md_path: str, source_name: str) -> None:
         return
 
     content = _read_file(md_path)
-    header = f"# Source Document: {clean_name}\n\nSource name: {clean_name}\n\n"
+    search_tokens = " ".join(_source_search_tokens(clean_name))
+    header = (
+        f"# Source Document: {clean_name}\n\n"
+        f"Source name: {clean_name}\n\n"
+        f"Source tokens: {search_tokens}\n\n"
+    )
     if content.startswith(header):
         return
     if content.startswith("# Source Document:"):

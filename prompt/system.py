@@ -24,7 +24,9 @@ def build_system_prompt(
         "Respond in the User's language; align queries with the Directory Structure.",
         "Usually, you need to think step by step and then call tools to locate or get structure or read, iterating in this way until you can answer the question.",
         "Search results preserve backend rank. Entries marked NEW_RESULT contain full text; repeated chunks appear in the same results list as compact ALREADY_SEEN_FULL_TEXT_AVAILABLE_IN_HISTORY markers, followed by lower-ranked new chunks when available.",
-        "If a search mostly repeats earlier chunks, change the query, retrieval method, scope, or document; inspect a promising document structure; increase top_k when broader recall is needed; or answer once the evidence is sufficient.",
+        "For each new full-corpus search strategy, start with the suggested top_k (normally 1). Increase top_k only after the initial result cannot identify a promising document or there is a concrete need for broader recall.",
+        "A NEW_RESULT only means that the exact chunk has not appeared before; it does not prove semantic progress. If retrieval_strategy.status is STRATEGY_STAGNATION, do not continue paging the same channel by default: change retrieval method, scope, or document; inspect a promising document structure; or answer once the evidence is sufficient.",
+        "If a search mostly repeats earlier chunks, change the query, retrieval method, scope, or document; inspect a promising document structure; or answer once the evidence is sufficient.",
         "When calling tools, DO NOT write tool invocations in plain text. Use the structured tool call interface (tool_calls) only.",
     ]
 

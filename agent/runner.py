@@ -14,7 +14,11 @@ from .llm import (
 from ..prompt.system import build_system_prompt
 from ..tool.fallback import fallback_tool_calls_from_text, strip_function_calls_block_any, strip_inline_tool_calls
 from ..tool.schema import make_tools_schema
-from .search_session import SearchSessionState, normalize_requested_top_k
+from .search_session import (
+    RetrievalStrategyState,
+    SearchSessionState,
+    normalize_requested_top_k,
+)
 
 
 def run_agent(
@@ -60,6 +64,8 @@ def run_agent(
     enable_session_pagination: bool = True,
     agent_topk_max: int = 10,
     pagination_candidate_limit: int = 50,
+    enable_retrieval_stagnation_hint: bool = True,
+    retrieval_stagnation_threshold: int = 3,
     additional_instructions: Optional[List[str] | str] = None,
 ) -> str:
     tools = make_tools_schema(
@@ -94,6 +100,9 @@ def run_agent(
     messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_question}]
     prev_msg_count = 1
     search_session = SearchSessionState()
+    retrieval_strategy = RetrievalStrategyState(
+        stagnation_threshold=retrieval_stagnation_threshold
+    )
     search_tool_names = {
         "bm25_search",
         "regex_search",
@@ -359,6 +368,17 @@ def run_agent(
                         requested_top_k=requested_top_k,
                         round_id=round_id,
                         candidate_top_k=candidate_top_k,
+                    )
+
+                if (
+                    enable_retrieval_stagnation_hint
+                    and tool_name in search_tool_names
+                ):
+                    out = retrieval_strategy.annotate(
+                        out,
+                        tool_name=tool_name,
+                        scope=args.get("scope", "full"),
+                        doc_id=args.get("doc_id"),
                     )
 
                 messages.append({"role": "tool", "tool_call_id": tc.get("id"), "content": json.dumps(out, ensure_ascii=False)})

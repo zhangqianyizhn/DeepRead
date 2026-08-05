@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from DeepRead.agent.runner import run_agent
 from DeepRead.agent.search_session import (
+    RetrievalStrategyState,
     SearchSessionState,
     chunk_id_for_result,
     normalize_requested_top_k,
@@ -27,6 +28,25 @@ def _hit(paragraph_index: int, text: str) -> dict:
 
 
 class SearchSessionStateTest(unittest.TestCase):
+    def test_repeated_search_channel_gets_visible_stagnation_warning(self) -> None:
+        state = RetrievalStrategyState(stagnation_threshold=3)
+        outputs = []
+        for paragraph_index in range(3):
+            outputs.append(
+                state.annotate(
+                    {"ok": True, "results": [_hit(paragraph_index, "new text")]},
+                    tool_name="bm25_search",
+                    scope="full",
+                    doc_id=None,
+                )
+            )
+
+        self.assertEqual(outputs[1]["retrieval_strategy"]["status"], "CONTINUE")
+        warning = outputs[2]["retrieval_strategy"]
+        self.assertEqual(warning["status"], "STRATEGY_STAGNATION")
+        self.assertEqual(warning["same_channel_streak"], 3)
+        self.assertIn("Switch retrieval method", warning["recommended_actions"][0])
+
     def test_agent_top_k_is_clamped(self) -> None:
         self.assertEqual(normalize_requested_top_k(None, 1, 10), 1)
         self.assertEqual(normalize_requested_top_k("6", 1, 10), 6)
@@ -163,6 +183,16 @@ class SearchSessionStateTest(unittest.TestCase):
                     }
                 ]
             },
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [{**tool_call, "id": "call-3"}],
+                        }
+                    }
+                ]
+            },
             {"choices": [{"message": {"content": "done"}}]},
         ]
         sent_payloads = []
@@ -181,20 +211,20 @@ class SearchSessionStateTest(unittest.TestCase):
                 doc_index=index,
                 user_question="question",
                 logger=FakeLogger(),
-                max_rounds=3,
+                max_rounds=4,
                 disable_regex=True,
                 agent_topk_max=10,
                 pagination_candidate_limit=50,
             )
 
         self.assertEqual(answer, "done")
-        self.assertEqual(index.requested_sizes, [2, 4])
+        self.assertEqual(index.requested_sizes, [2, 4, 6])
         tool_messages = [
             message
             for message in sent_payloads[-1]["messages"]
             if message["role"] == "tool"
         ]
-        second_page = json.loads(tool_messages[-1]["content"])
+        second_page = json.loads(tool_messages[-2]["content"])
         seen_results = [
             result
             for result in second_page["results"]
@@ -208,6 +238,11 @@ class SearchSessionStateTest(unittest.TestCase):
                 if result["status"] == "NEW_RESULT"
             ],
             ["text-3", "text-4"],
+        )
+        third_page = json.loads(tool_messages[-1]["content"])
+        self.assertEqual(
+            third_page["retrieval_strategy"]["status"],
+            "STRATEGY_STAGNATION",
         )
 
 

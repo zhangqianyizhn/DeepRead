@@ -27,7 +27,9 @@ def make_tools_schema(
         "default": suggested,
         "description": (
             f"Number of new full-text results requested (suggested {suggested}, "
-            f"maximum {maximum}). Increase it when broader recall is needed. "
+            f"maximum {maximum}). Start a new full-corpus search strategy with "
+            f"top_k={suggested}. Increase it only after the initial result cannot "
+            "identify a promising document or broader recall is demonstrably needed. "
             "Previously returned chunks may additionally appear as compact marker "
             "entries in the ranked results list."
         ),

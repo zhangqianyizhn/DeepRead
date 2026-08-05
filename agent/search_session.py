@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 @dataclass
@@ -115,4 +115,77 @@ class SearchSessionState:
                 "present in this conversation."
             ),
         }
+        return out
+
+
+@dataclass
+class RetrievalStrategyState:
+    """Detect repeated use of one retrieval channel without blocking the agent."""
+
+    stagnation_threshold: int = 3
+    recent_attempts: List[Tuple[str, str, Optional[str]]] = field(default_factory=list)
+    seen_doc_ids: Set[str] = field(default_factory=set)
+
+    def annotate(
+        self,
+        search_result: Dict[str, Any],
+        *,
+        tool_name: str,
+        scope: str,
+        doc_id: Optional[str],
+    ) -> Dict[str, Any]:
+        """Attach a visible warning after repeated use of the same search strategy."""
+        if not isinstance(search_result, dict) or not search_result.get("ok", False):
+            return search_result
+
+        normalized_scope = str(scope or "full")
+        normalized_doc_id = str(doc_id) if doc_id is not None else None
+        signature = (str(tool_name), normalized_scope, normalized_doc_id)
+        self.recent_attempts.append(signature)
+
+        threshold = max(2, int(self.stagnation_threshold))
+        if len(self.recent_attempts) > threshold:
+            self.recent_attempts = self.recent_attempts[-threshold:]
+
+        result_doc_ids = {
+            str((item.get("ref") or {}).get("doc_id"))
+            for item in (search_result.get("results") or [])
+            if (item.get("ref") or {}).get("doc_id") is not None
+        }
+        new_doc_ids = sorted(result_doc_ids - self.seen_doc_ids)
+        self.seen_doc_ids.update(result_doc_ids)
+
+        same_channel_streak = 0
+        for previous in reversed(self.recent_attempts):
+            if previous == signature:
+                same_channel_streak += 1
+            else:
+                break
+
+        strategy = {
+            "status": "CONTINUE",
+            "same_channel_streak": same_channel_streak,
+            "new_document_ids": new_doc_ids,
+        }
+        if same_channel_streak >= threshold:
+            strategy.update(
+                {
+                    "status": "STRATEGY_STAGNATION",
+                    "reason": (
+                        f"{tool_name} has been used {same_channel_streak} consecutive "
+                        f"times with scope={normalized_scope!r} and doc_id="
+                        f"{normalized_doc_id!r}. New chunks do not necessarily mean "
+                        "that the retrieval strategy is making semantic progress."
+                    ),
+                    "recommended_actions": [
+                        "Switch retrieval method (for example BM25 to vector or regex).",
+                        "Inspect the structure of a promising document before continuing.",
+                        "Change scope or document instead of paging the same ranking further.",
+                        "Answer now if the evidence already supports the requested conclusion.",
+                    ],
+                }
+            )
+
+        out = dict(search_result)
+        out["retrieval_strategy"] = strategy
         return out

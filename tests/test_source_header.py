@@ -6,6 +6,7 @@ from DeepRead.index.markdown_parser import (
     ensure_source_header,
     parse_markdown_to_corpus,
 )
+from DeepRead.tool.retrieval import DocIndex
 
 
 class SourceHeaderTest(unittest.TestCase):
@@ -28,8 +29,21 @@ class SourceHeaderTest(unittest.TestCase):
                 source_node["title"], "Source Document: COCACOLA_2021_10K"
             )
             self.assertEqual(
-                source_node["paragraphs"], ["Source name: COCACOLA_2021_10K"]
+                source_node["paragraphs"],
+                [
+                    "Source name: COCACOLA_2021_10K",
+                    "Source tokens: COCACOLA 2021 10K 10-K",
+                ],
             )
+
+            indexed_nodes = []
+            for node in corpus["nodes"]:
+                indexed_node = dict(node)
+                indexed_node["doc_id"] = "1"
+                indexed_nodes.append(indexed_node)
+            index = DocIndex(indexed_nodes, neighbor_window=(0, 0))
+            result = index.bm25_search("CocaCola 2021 10-K", top_k=1)
+            self.assertEqual(result["results"][0]["text"], source_node["paragraphs"][1])
 
 
 if __name__ == "__main__":
