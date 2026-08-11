@@ -24,6 +24,27 @@ def should_sanitize_for_vllm(base_url: Optional[str]) -> bool:
         return True
     return False
 
+def is_kimi_provider(model: Optional[str], base_url: Optional[str]) -> bool:
+    """判断目标是否为 Kimi（Moonshot）API。"""
+    return detect_provider(model, base_url) == "kimi"
+
+
+def detect_provider(model: Optional[str], base_url: Optional[str]) -> str:
+    """识别 LLM 提供方，返回 "kimi" | "deepseek" | "default"。
+
+    不同提供方的请求参数不兼容（火山引擎 Ark 的 include_reasoning、
+    Kimi 的 reasoning_effort、DeepSeek 的 thinking 开关等），
+    调用方需按返回值构造各自的 payload。
+    """
+    m = (model or "").lower()
+    u = (base_url or "").lower()
+    if m.startswith("kimi") or "moonshot" in u:
+        return "kimi"
+    if m.startswith("deepseek") or "deepseek" in u:
+        return "deepseek"
+    return "default"
+
+
 def sanitize_for_vllm(payload: Dict[str, Any], allow_tools: bool = True) -> Dict[str, Any]:
     p = dict(payload)
     for k in ("include_reasoning", "reasoning", "parallel_tool_calls", "response_format", "modalities", "audio", "vision", "metadata"):

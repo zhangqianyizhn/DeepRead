@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .llm import (
     _preview_messages,
     _preview_tool_calls,
+    detect_provider,
     http_chat_completions,
     sanitize_for_vllm,
     should_sanitize_for_vllm,
@@ -67,6 +68,9 @@ def run_agent(
     enable_retrieval_stagnation_hint: bool = True,
     retrieval_stagnation_threshold: int = 3,
     additional_instructions: Optional[List[str] | str] = None,
+    reasoning_effort: Optional[str] = None,
+    max_completion_tokens: Optional[int] = None,
+    request_timeout: int = 120,
 ) -> str:
     tools = make_tools_schema(
         doc_index,
@@ -112,6 +116,11 @@ def run_agent(
     }
 
     do_sanitize = should_sanitize_for_vllm(base_url)
+    provider = detect_provider(model, base_url)
+    # Kimi（Moonshot）保留式思考与 DeepSeek 思考模式（携带 tools 时）都要求
+    # 历史 assistant 消息以 reasoning_content 字段原样回传，否则 DeepSeek 会报 400；
+    # 火山引擎 Ark 使用 reasoning 字段
+    reasoning_history_key = "reasoning_content" if provider in ("kimi", "deepseek") else "reasoning"
 
     effective_neighbor_window: Optional[Tuple[int, int]] = neighbor_window if neighbor_window is not None else doc_index.neighbor_window
 
@@ -121,10 +130,31 @@ def run_agent(
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
-            "temperature": temperature,
             "stream": False,
-            "include_reasoning": bool(enable_reasoning),
         }
+        if provider == "kimi":
+            # kimi-k3 始终思考：不支持 include_reasoning，temperature 不可修改（不传）。
+            # 思考强度通过顶层 reasoning_effort（low/high/max，默认 max）配置；
+            # 上下文窗口为模型固定（kimi-k3 为 1M tokens），仅可用 max_completion_tokens 限制输出长度。
+            if reasoning_effort:
+                req_payload["reasoning_effort"] = reasoning_effort
+            if max_completion_tokens:
+                req_payload["max_completion_tokens"] = max_completion_tokens
+        elif provider == "deepseek":
+            # DeepSeek-V4：思考模式默认开启，用 thinking.type 显式声明；
+            # 思考强度 reasoning_effort（low/high/max，默认 high）；
+            # 思考模式下 temperature/top_p 等采样参数无效，故不发送（关闭思考时才发送）；
+            # 输出长度上限参数名为 max_tokens（非 max_completion_tokens）。
+            req_payload["thinking"] = {"type": "enabled" if enable_reasoning else "disabled"}
+            if reasoning_effort:
+                req_payload["reasoning_effort"] = reasoning_effort
+            if max_completion_tokens:
+                req_payload["max_tokens"] = max_completion_tokens
+            if not enable_reasoning:
+                req_payload["temperature"] = temperature
+        else:
+            req_payload["temperature"] = temperature
+            req_payload["include_reasoning"] = bool(enable_reasoning)
 
         logger.log("llm_request", query_id=query_id, round=round_id, base_url=base_url, context_delta_preview=_preview_messages(messages[prev_msg_count:]))
         prev_msg_count = len(messages)
@@ -132,7 +162,7 @@ def run_agent(
         payload_to_send = sanitize_for_vllm(req_payload, allow_tools=True) if do_sanitize else req_payload
 
         try:
-            resp = http_chat_completions(query_id=query_id, api_key=api_key, base_url=base_url, payload=payload_to_send, default_headers=default_headers, logger=logger)
+            resp = http_chat_completions(query_id=query_id, api_key=api_key, base_url=base_url, payload=payload_to_send, default_headers=default_headers, timeout=request_timeout, logger=logger)
         except Exception as exc:
             logger.log("llm_http_error", query_id=query_id, error=str(exc), round=round_id)
             resp = {}
@@ -179,7 +209,7 @@ def run_agent(
         assistant_entry["content"] = content_for_history
 
         if enable_reasoning and reasoning_content:
-            assistant_entry["reasoning"] = reasoning_content
+            assistant_entry[reasoning_history_key] = reasoning_content
 
         if tool_calls:
             assistant_entry["tool_calls"] = tool_calls
